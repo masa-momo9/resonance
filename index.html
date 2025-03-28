@@ -1,0 +1,77 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>共振シミュレーター（1自由度）</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    canvas {
+      border: 1px solid #ccc;
+      margin-top: 20px;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>共振シミュレーター（1自由度モデル）</h1>
+  <label>質量 m (kg): <input type="number" id="mass" value="1000"></label>
+  <label>バネ定数 k (N/m): <input type="number" id="k" value="10000"></label>
+  <label>外力 周波数 f (Hz): <input type="number" id="freq" value="1"></label>
+  <button onclick="startSimulation()">シミュレーション開始</button>
+  <canvas id="canvas" width="600" height="300"></canvas>
+
+  <script>
+    let ctx = document.getElementById("canvas").getContext("2d");
+    let animationId;
+
+    function startSimulation() {
+      cancelAnimationFrame(animationId);
+
+      const m = parseFloat(document.getElementById("mass").value);
+      const k = parseFloat(document.getElementById("k").value);
+      const f = parseFloat(document.getElementById("freq").value);
+
+      const omega = 2 * Math.PI * f;
+      const omega0 = Math.sqrt(k / m);
+      const amplitude = 50 / Math.abs(1 - (omega / omega0) ** 2); // 簡易共振式
+
+      let t = 0;
+      const dt = 0.02;
+
+      function draw() {
+        t += dt;
+        const x = amplitude * Math.sin(omega * t);
+
+        ctx.clearRect(0, 0, 600, 300);
+
+        // バネの上部
+        ctx.beginPath();
+        ctx.moveTo(300, 50);
+        ctx.lineTo(300, 150 + x);
+        ctx.stroke();
+
+        // 重り
+        ctx.fillStyle = "blue";
+        ctx.fillRect(275, 150 + x, 50, 50);
+
+        // 時間と変位表示
+        ctx.fillStyle = "black";
+        ctx.fillText(`時間: ${t.toFixed(2)} s`, 10, 20);
+        ctx.fillText(`変位: ${x.toFixed(2)} px`, 10, 40);
+
+        animationId = requestAnimationFrame(draw);
+      }
+
+      draw();
+    }
+  </script>
+</body>
+</html>
