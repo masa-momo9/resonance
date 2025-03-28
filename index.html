@@ -2,101 +2,125 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>多自由度共振シミュレーター</title>
+  <title>鉄球振動シミュレーター</title>
   <style>
-    body { font-family: sans-serif; }
-    #building { display: flex; flex-direction: column-reverse; align-items: center; margin: 20px auto; }
-    .floor {
-      width: 200px;
-      height: 40px;
-      margin: 5px;
-      background-color: #4CAF50;
-      transition: transform 0.05s linear;
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f9f9f9;
+      margin: 0;
+      padding: 20px;
     }
-    #controls { text-align: center; margin: 20px; }
-    canvas { background: #f0f0f0; margin-top: 20px; }
+    canvas {
+      background-color: #eee;
+      display: block;
+      margin: 20px auto;
+      border: 1px solid #ccc;
+    }
+    .controls {
+      margin-bottom: 10px;
+    }
+    label {
+      margin: 0 10px;
+    }
   </style>
 </head>
 <body>
-  <h2 style="text-align:center;">多自由度共振シミュレーター</h2>
-  <div id="controls">
-    階数: <input type="number" id="numFloors" value="3" min="1" max="10">
-    剛性 (kN/m): <input type="number" id="stiffness" value="10000">
-    質量 (kg): <input type="number" id="mass" value="5000">
+  <h1>鉄球振動シミュレーター</h1>
+  <div class="controls">
+    <label>
+      ひもの長さ (m):
+      <input id="length" type="number" value="1" step="0.1" min="0.1">
+    </label>
+    <label>
+      鉄球の重さ (kg):
+      <input id="weight" type="number" value="1" step="0.1" min="0.1">
+    </label>
+    <label>
+      振動数 (Hz):
+      <input id="frequency" type="number" value="1" step="0.1" min="0.1">
+    </label>
     <button onclick="startSimulation()">シミュレーション開始</button>
   </div>
-
-  <div id="building"></div>
-
-  <canvas id="graph" width="600" height="300"></canvas>
+  <canvas id="canvas" width="600" height="400"></canvas>
 
   <script>
-    let floors = [];
-    let positions = [];
-    let velocities = [];
-    let accelerations = [];
-    let time = 0;
-    let interval;
-
-    function createBuilding(n) {
-      const container = document.getElementById("building");
-      container.innerHTML = "";
-      floors = [];
-      for (let i = 0; i < n; i++) {
-        const div = document.createElement("div");
-        div.className = "floor";
-        container.appendChild(div);
-        floors.push(div);
-      }
-    }
+    // 定数
+    const g = 9.8; // 重力加速度 [m/s^2]
+    const scale = 100; // 描画スケール（1m = 100px）
+    const dt = 0.016; // タイムステップ（約60fps）
+    
+    // キャンバスの設定
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    
+    let simulationFrame; // アニメーション用ID
 
     function startSimulation() {
-      const n = parseInt(document.getElementById("numFloors").value);
-      const k = parseFloat(document.getElementById("stiffness").value);
-      const m = parseFloat(document.getElementById("mass").value);
-      
-      createBuilding(n);
-
-      // 初期条件
-      positions = Array(n).fill(0);
-      velocities = Array(n).fill(0);
-      accelerations = Array(n).fill(0);
-      positions[n - 1] = 10; // 最上階に初期変位
-      time = 0;
-
-      if (interval) clearInterval(interval);
-      interval = setInterval(() => {
-        // 各階の加速度を計算（簡易MDOFモデル）
-        for (let i = 0; i < n; i++) {
-          let force = 0;
-          if (i > 0) force += -k * (positions[i] - positions[i - 1]);
-          if (i < n - 1) force += -k * (positions[i] - positions[i + 1]);
-          else force += -k * positions[i];
-          accelerations[i] = force / m;
-        }
-
-        // 更新
-        for (let i = 0; i < n; i++) {
-          velocities[i] += accelerations[i] * 0.05;
-          positions[i] += velocities[i] * 0.05;
-          floors[i].style.transform = `translateX(${positions[i]}px)`;
-        }
-
-        drawGraph(positions);
-        time += 0.05;
-      }, 50);
-    }
-
-    const ctx = document.getElementById("graph").getContext("2d");
-    function drawGraph(data) {
-      ctx.clearRect(0, 0, 600, 300);
-      ctx.beginPath();
-      for (let i = 0; i < data.length; i++) {
-        ctx.fillStyle = `hsl(${i * 60}, 70%, 50%)`;
-        ctx.fillRect(50 + i * 150, 150 - data[i] * 2, 20, 4);
-        ctx.fillText(`階${i + 1}`, 50 + i * 150, 170);
+      // 既にシミュレーションが走っていれば停止
+      if(simulationFrame) {
+        cancelAnimationFrame(simulationFrame);
       }
-      ctx.stroke();
+      
+      // 入力値の取得
+      const L = parseFloat(document.getElementById("length").value);       // ひもの長さ [m]
+      const weight = parseFloat(document.getElementById("weight").value);    // 鉄球の重さ [kg]
+      const freq = parseFloat(document.getElementById("frequency").value);   // 振動数 [Hz]
+      
+      const drivingOmega = 2 * Math.PI * freq; // 駆動角振動数 [rad/s]
+      const A = 0.05 * L; // ピボットの左右振幅 [m]（ひもの長さに対する割合）
+      
+      // 初期状態
+      let theta = 0;       // 鉄球の角度（垂直からのずれ、ラジアン）
+      let omegaTheta = 0;  // 角速度 [rad/s]
+      let t = 0;         // 時間 [s]
+      
+      function update() {
+        // ピボットの水平位置とその加速度
+        const x0 = A * Math.cos(drivingOmega * t);
+        const x0_acc = -A * drivingOmega * drivingOmega * Math.cos(drivingOmega * t);
+        
+        // 鉄球の角加速度（θの加速度）
+        const alpha = - (g / L) * Math.sin(theta) + (x0_acc / L) * Math.cos(theta);
+        
+        // Euler法による更新
+        omegaTheta += alpha * dt;
+        theta += omegaTheta * dt;
+        t += dt;
+        
+        // キャンバスのクリア
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // ピボット（固定点）の描画位置
+        const pivotX = canvas.width / 2;
+        const pivotY = 50;
+        const pivotMovingX = pivotX + x0 * scale; // ピボットは左右に振動
+        
+        // 鉄球の位置
+        const bobX = pivotMovingX + L * scale * Math.sin(theta);
+        const bobY = pivotY + L * scale * Math.cos(theta);
+        
+        // ひもの描画
+        ctx.beginPath();
+        ctx.moveTo(pivotMovingX, pivotY);
+        ctx.lineTo(bobX, bobY);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // 鉄球の描画（重さに応じたサイズに変更）
+        const bobRadius = 10 + weight * 5; // 鉄球の半径 [px]
+        ctx.beginPath();
+        ctx.arc(bobX, bobY, bobRadius, 0, Math.PI * 2);
+        ctx.fillStyle = "red";
+        ctx.fill();
+        ctx.stroke();
+        
+        // 次のフレームの呼び出し
+        simulationFrame = requestAnimationFrame(update);
+      }
+      
+      update();
     }
   </script>
 </body>
