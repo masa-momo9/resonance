@@ -1,76 +1,102 @@
 ﻿<!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>共振シミュレーター（1自由度）</title>
+  <meta charset="UTF-8">
+  <title>多自由度共振シミュレーター</title>
   <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      padding: 20px;
+    body { font-family: sans-serif; }
+    #building { display: flex; flex-direction: column-reverse; align-items: center; margin: 20px auto; }
+    .floor {
+      width: 200px;
+      height: 40px;
+      margin: 5px;
+      background-color: #4CAF50;
+      transition: transform 0.05s linear;
     }
-    canvas {
-      border: 1px solid #ccc;
-      margin-top: 20px;
-    }
-    label {
-      display: block;
-      margin-top: 10px;
-    }
+    #controls { text-align: center; margin: 20px; }
+    canvas { background: #f0f0f0; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <h1>共振シミュレーター（1自由度モデル）</h1>
-  <label>質量 m (kg): <input type="number" id="mass" value="1000"></label>
-  <label>バネ定数 k (N/m): <input type="number" id="k" value="10000"></label>
-  <label>外力 周波数 f (Hz): <input type="number" id="freq" value="1"></label>
-  <button onclick="startSimulation()">シミュレーション開始</button>
-  <canvas id="canvas" width="600" height="300"></canvas>
+  <h2 style="text-align:center;">多自由度共振シミュレーター</h2>
+  <div id="controls">
+    階数: <input type="number" id="numFloors" value="3" min="1" max="10">
+    剛性 (kN/m): <input type="number" id="stiffness" value="10000">
+    質量 (kg): <input type="number" id="mass" value="5000">
+    <button onclick="startSimulation()">シミュレーション開始</button>
+  </div>
+
+  <div id="building"></div>
+
+  <canvas id="graph" width="600" height="300"></canvas>
 
   <script>
-    let ctx = document.getElementById("canvas").getContext("2d");
-    let animationId;
+    let floors = [];
+    let positions = [];
+    let velocities = [];
+    let accelerations = [];
+    let time = 0;
+    let interval;
+
+    function createBuilding(n) {
+      const container = document.getElementById("building");
+      container.innerHTML = "";
+      floors = [];
+      for (let i = 0; i < n; i++) {
+        const div = document.createElement("div");
+        div.className = "floor";
+        container.appendChild(div);
+        floors.push(div);
+      }
+    }
 
     function startSimulation() {
-      cancelAnimationFrame(animationId);
-
+      const n = parseInt(document.getElementById("numFloors").value);
+      const k = parseFloat(document.getElementById("stiffness").value);
       const m = parseFloat(document.getElementById("mass").value);
-      const k = parseFloat(document.getElementById("k").value);
-      const f = parseFloat(document.getElementById("freq").value);
+      
+      createBuilding(n);
 
-      const omega = 2 * Math.PI * f;
-      const omega0 = Math.sqrt(k / m);
-      const amplitude = 50 / Math.abs(1 - (omega / omega0) ** 2); // 簡易共振式
+      // 初期条件
+      positions = Array(n).fill(0);
+      velocities = Array(n).fill(0);
+      accelerations = Array(n).fill(0);
+      positions[n - 1] = 10; // 最上階に初期変位
+      time = 0;
 
-      let t = 0;
-      const dt = 0.02;
+      if (interval) clearInterval(interval);
+      interval = setInterval(() => {
+        // 各階の加速度を計算（簡易MDOFモデル）
+        for (let i = 0; i < n; i++) {
+          let force = 0;
+          if (i > 0) force += -k * (positions[i] - positions[i - 1]);
+          if (i < n - 1) force += -k * (positions[i] - positions[i + 1]);
+          else force += -k * positions[i];
+          accelerations[i] = force / m;
+        }
 
-      function draw() {
-        t += dt;
-        const x = amplitude * Math.sin(omega * t);
+        // 更新
+        for (let i = 0; i < n; i++) {
+          velocities[i] += accelerations[i] * 0.05;
+          positions[i] += velocities[i] * 0.05;
+          floors[i].style.transform = `translateX(${positions[i]}px)`;
+        }
 
-        ctx.clearRect(0, 0, 600, 300);
+        drawGraph(positions);
+        time += 0.05;
+      }, 50);
+    }
 
-        // バネの上部
-        ctx.beginPath();
-        ctx.moveTo(300, 50);
-        ctx.lineTo(300, 150 + x);
-        ctx.stroke();
-
-        // 重り
-        ctx.fillStyle = "blue";
-        ctx.fillRect(275, 150 + x, 50, 50);
-
-        // 時間と変位表示
-        ctx.fillStyle = "black";
-        ctx.fillText(`時間: ${t.toFixed(2)} s`, 10, 20);
-        ctx.fillText(`変位: ${x.toFixed(2)} px`, 10, 40);
-
-        animationId = requestAnimationFrame(draw);
+    const ctx = document.getElementById("graph").getContext("2d");
+    function drawGraph(data) {
+      ctx.clearRect(0, 0, 600, 300);
+      ctx.beginPath();
+      for (let i = 0; i < data.length; i++) {
+        ctx.fillStyle = `hsl(${i * 60}, 70%, 50%)`;
+        ctx.fillRect(50 + i * 150, 150 - data[i] * 2, 20, 4);
+        ctx.fillText(`階${i + 1}`, 50 + i * 150, 170);
       }
-
-      draw();
+      ctx.stroke();
     }
   </script>
 </body>
